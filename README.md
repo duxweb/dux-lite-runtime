@@ -87,64 +87,60 @@ runtime/bin/
 
 ```toml
 [runtime]
+# Go realtime 服务端口
 port = 9504
+
+# Go -> PHP master 控制 socket
 control_socket = "data/runtime/master.sock"
+
+# PHP -> Go gateway 控制 socket
 gateway_socket = "data/runtime/gateway.sock"
+
+# PHP worker 启动命令
 worker_command = "php dux runtime --worker"
+
+# 单个 PHP worker 最多处理多少个任务后回收重建
 worker_max_jobs = 1000
+
+# 超过最小池的空闲 worker 保留秒数
 worker_idle_ttl = 300
+
+# 启动时最小 PHP worker 数
 min_workers = 4
+
+# 最大 PHP worker 数，0 表示不限制
 max_workers = 0
+
+# 没有空闲 worker 时每次扩容数量
 scale_up_step = 1
+
+# 单任务超时秒数，超时后当前 worker 会被销毁重建
 task_timeout = 30
+
+# 队列轮询间隔
 queue_poll_interval = "1s"
+
+# 每次从 PHP 拉取的队列任务上限
 queue_pull_limit = 8
+
+# 队列 dispatcher 配置刷新间隔
 queue_config_refresh = "10s"
+
+# 计划任务轮询间隔
 schedule_poll_interval = "1s"
+
+# 每次从 PHP 拉取的计划任务上限
 schedule_pull_limit = 8
+
+# runtime --watch 状态刷新间隔
 status_interval = 10
+
+# 是否启用扩展内置 WS fallback listener
 ws_fallback = true
+
+# 是否启用 PHP 文件型队列统计，默认建议关闭
 queue_metrics = false
 ```
-
-字段说明：
-
-- `port`
-  Go realtime 服务端口
-- `control_socket`
-  Go -> PHP master 控制 socket
-- `gateway_socket`
-  PHP -> Go gateway 控制 socket
-- `worker_command`
-  PHP worker 启动命令，默认 `php dux runtime --worker`
-- `worker_max_jobs`
-  单个 PHP worker 最多执行多少个任务后回收重建
-- `worker_idle_ttl`
-  非最小池 worker 空闲多久后自动缩容
-- `min_workers`
-  启动时最小 PHP worker 数
-- `max_workers`
-  最大 PHP worker 数，`0` 表示不限制
-- `scale_up_step`
-  池内无空闲 worker 时单次扩容步长
-- `task_timeout`
-  单任务超时时间，超时会中断当前 worker 并重建
-- `queue_poll_interval`
-  队列轮询间隔
-- `queue_pull_limit`
-  每次从 PHP 拉取队列任务数量上限
-- `queue_config_refresh`
-  从 PHP 重新加载队列 dispatcher 配置的间隔
-- `schedule_poll_interval`
-  计划任务轮询间隔
-- `schedule_pull_limit`
-  每次拉取计划任务数量上限
-- `status_interval`
-  `runtime --watch` 状态刷新间隔
-- `ws_fallback`
-  是否启用扩展包内置的 WebSocket fallback listener
-- `queue_metrics`
-  是否启用 PHP 文件型队列执行统计，建议 runtime 模式关闭
 
 ## Commands
 
@@ -181,16 +177,6 @@ php dux runtime --worker
 ```bash
 php dux runtime:status
 ```
-
-### `queue:consume`
-
-队列消费进程（常驻）。
-
-### `queue:start`
-
-队列管理进程（按配置启动并发 worker）。
-
-这两个是 DuxLite 原生 PHP 队列命令，仍可保留；如果使用 `dux-lite-runtime`，通常以 `runtime` 为主。
 
 ## Queue Runtime Model
 
