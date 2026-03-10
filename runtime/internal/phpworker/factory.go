@@ -16,6 +16,8 @@ import (
 
 	"github.com/duxweb/dux-runtime/runtime/internal/config"
 	"github.com/duxweb/dux-runtime/runtime/internal/task"
+	"github.com/roadrunner-server/goridge/v3/pkg/frame"
+	"github.com/roadrunner-server/goridge/v3/pkg/pipe"
 )
 
 var ErrWorkerCommandRequired = errors.New("php worker command required")
@@ -78,9 +80,12 @@ func (f *Factory) NewWorker() (*Worker, error) {
 		cmd:      command,
 		stdin:    stdin,
 		stdout:   bufio.NewReader(stdout),
+		relay:    pipe.NewPipeRelay(stdout, stdin),
 		lastUsed: time.Now(),
 	}
-	go io.Copy(os.Stderr, stderr)
+	go func() {
+		_, _ = bufio.NewReader(stderr).WriteTo(os.Stderr)
+	}()
 
 	return worker, nil
 }
@@ -93,12 +98,23 @@ type Worker struct {
 	cmd      *exec.Cmd
 	stdin    io.WriteCloser
 	stdout   *bufio.Reader
+	relay    *pipe.Relay
 	mu       sync.Mutex
 	broken   bool
 }
 
 func (w *Worker) ID() int {
 	return w.id
+}
+
+func (w *Worker) Broken() bool {
+	return w.broken
+}
+
+func (w *Worker) LastUsed() time.Time {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.lastUsed
 }
 
 func (w *Worker) Execute(ctx context.Context, envelope task.Envelope) task.Result {
@@ -178,6 +194,16 @@ func (w *Worker) ShouldRestart() bool {
 	return w.jobs >= w.maxJobs
 }
 
+func (w *Worker) RestartReason() string {
+	if w.broken {
+		return "broken"
+	}
+	if w.maxJobs > 0 && w.jobs >= w.maxJobs {
+		return "max_jobs"
+	}
+	return ""
+}
+
 func (w *Worker) Close() error {
 	if w.stdin != nil {
 		_ = w.stdin.Close()
@@ -204,27 +230,33 @@ func (w *Worker) writeTask(envelope task.Envelope) error {
 	if err != nil {
 		return err
 	}
-	payload = append(payload, '\n')
-	_, err = w.stdin.Write(payload)
-	return err
+	fr := frame.NewFrame()
+	fr.WriteVersion(fr.Header(), frame.Version1)
+	fr.WriteFlags(fr.Header(), frame.CodecJSON)
+	fr.WritePayloadLen(fr.Header(), uint32(len(payload)))
+	fr.WritePayload(payload)
+	fr.WriteCRC(fr.Header())
+	return w.relay.Send(fr)
 }
 
 func (w *Worker) readResult() (task.Result, error) {
-	for {
-		line, err := w.stdout.ReadBytes('\n')
-		if err != nil {
-			return task.Result{}, err
-		}
-		if strings.TrimSpace(string(line)) == "" {
-			continue
-		}
-
-		var result task.Result
-		if err = json.Unmarshal(line, &result); err != nil {
-			return task.Result{}, err
-		}
-		return result, nil
+	fr := frame.NewFrame()
+	if err := w.relay.Receive(fr); err != nil {
+		return task.Result{}, err
 	}
+	if !fr.VerifyCRC(fr.Header()) {
+		return task.Result{}, errors.New("worker response crc verification failed")
+	}
+	payload := strings.TrimSpace(string(fr.Payload()))
+	if payload == "" {
+		return task.Result{}, errors.New("worker response payload is empty")
+	}
+
+	var result task.Result
+	if err := json.Unmarshal([]byte(payload), &result); err != nil {
+		return task.Result{}, err
+	}
+	return result, nil
 }
 
 func splitCommandLine(command string) ([]string, error) {

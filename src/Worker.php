@@ -8,26 +8,33 @@ use Core\App;
 use Core\Handlers\Exception;
 use Core\Queue\QueueJobMessage;
 use Core\Queue\QueueJobMessageHandler;
+use Spiral\Goridge\Frame;
+use Spiral\Goridge\Relay;
 
 class Worker
 {
     public function run(int $maxJobs = 0): int
     {
+        $relay = Relay::create('pipes');
         $jobs = 0;
-        while (!feof(STDIN)) {
-            $line = fgets(STDIN);
-            if ($line === false) {
+        while (true) {
+            try {
+                $frame = $relay->waitFrame();
+            } catch (\Throwable) {
                 break;
             }
 
-            $line = trim($line);
-            if (!$line) {
+            $payload = trim((string)$frame->payload);
+            if (!$payload) {
                 continue;
             }
 
-            $result = $this->handle($line);
-            fwrite(STDOUT, json_encode($result, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . "\n");
-            fflush(STDOUT);
+            $result = $this->handle($payload);
+            $relay->send(new Frame(
+                json_encode($result, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                [],
+                Frame::CODEC_JSON
+            ));
 
             $jobs++;
             if ($maxJobs > 0 && $jobs >= $maxJobs) {

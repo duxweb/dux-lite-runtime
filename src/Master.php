@@ -5,17 +5,27 @@ declare(strict_types=1);
 namespace Core\Runtime;
 
 use Core\App;
+use Spiral\Goridge\Frame;
+use Symfony\Component\Console\Output\BufferedOutput;
+use Symfony\Component\Console\Output\ConsoleOutputInterface;
+use Symfony\Component\Console\Output\ConsoleSectionOutput;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Process\Process;
 
 class Master
 {
     private bool $running = true;
+    private ?ConsoleSectionOutput $statusSection = null;
 
     public function __construct(
         private string $socketPath,
+        private string $gatewaySocketPath,
+        private int $port,
         private string $goCommand,
-        private OutputInterface $output
+        private string $workerCommand,
+        private OutputInterface $output,
+        private bool $showStatus = true,
+        private int $statusInterval = 10
     ) {
     }
 
@@ -31,12 +41,22 @@ class Master
 
         stream_set_blocking($server, false);
         $process = $this->startGoProcess();
+        $nextStatusAt = time();
+
+        if ($this->showStatus && $this->output instanceof ConsoleOutputInterface) {
+            $this->statusSection = $this->output->section();
+        }
 
         try {
             while ($this->running) {
                 $client = @stream_socket_accept($server, 1);
                 if ($client) {
                     $this->handleClient($client);
+                }
+
+                if ($this->showStatus && time() >= $nextStatusAt) {
+                    $this->renderStatus();
+                    $nextStatusAt = time() + $this->statusInterval;
                 }
 
                 if ($process && !$process->isRunning()) {
@@ -69,13 +89,30 @@ class Master
         $process->setEnv([
             ...$_ENV,
             'DUX_RUNTIME_CONTROL_SOCKET' => $this->socketPath,
+            'DUX_RUNTIME_GATEWAY_SOCKET' => $this->gatewaySocketPath,
+            'DUX_RUNTIME_REALTIME_ADDR' => ':' . $this->port,
+            'DUX_RUNTIME_WORKERS' => (string)RuntimeConfig::minWorkers(),
+            'DUX_RUNTIME_MAX_WORKERS' => (string)RuntimeConfig::maxWorkers(),
+            'DUX_RUNTIME_SCALE_UP_STEP' => (string)RuntimeConfig::scaleUpStep(),
+            'DUX_RUNTIME_WORKER_MAX_JOBS' => (string)RuntimeConfig::workerMaxJobs(),
+            'DUX_RUNTIME_WORKER_IDLE_TTL' => (string)RuntimeConfig::workerIdleTtl(),
+            'DUX_RUNTIME_TASK_TIMEOUT' => (string)RuntimeConfig::taskTimeout(),
+            'DUX_RUNTIME_QUEUE_POLL_INTERVAL' => RuntimeConfig::queuePollInterval(),
+            'DUX_RUNTIME_QUEUE_PULL_LIMIT' => (string)RuntimeConfig::queuePullLimit(),
+            'DUX_RUNTIME_QUEUE_CONFIG_REFRESH' => RuntimeConfig::queueConfigRefresh(),
+            'DUX_RUNTIME_SCHEDULE_POLL_INTERVAL' => RuntimeConfig::schedulerPollInterval(),
+            'DUX_RUNTIME_SCHEDULE_PULL_LIMIT' => (string)RuntimeConfig::schedulerPullLimit(),
         ]);
         $process->start(function ($type, $buffer) {
             unset($type);
-            $this->output->write($buffer);
+            if (!$this->showStatus) {
+                $this->output->write($buffer);
+            }
         });
 
-        $this->output->writeln('<info>runtime go command started</info>');
+        if (!$this->showStatus) {
+            $this->output->writeln('<info>runtime go command started</info>');
+        }
         return $process;
     }
 
@@ -83,8 +120,8 @@ class Master
     {
         stream_set_blocking($client, true);
         stream_set_timeout($client, 5);
-        $line = fgets($client);
-        if ($line === false) {
+        $frame = $this->receiveFrame($client);
+        if (!$frame) {
             fclose($client);
             return;
         }
@@ -97,7 +134,7 @@ class Master
         ];
 
         try {
-            $payload = json_decode(trim($line), true, 512, JSON_THROW_ON_ERROR);
+            $payload = json_decode((string)$frame->payload, true, 512, JSON_THROW_ON_ERROR);
             if (!is_array($payload)) {
                 throw new \RuntimeException('runtime request payload must be object');
             }
@@ -111,7 +148,11 @@ class Master
             ]);
         }
 
-        fwrite($client, json_encode($response, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . "\n");
+        fwrite($client, Frame::packFrame(new Frame(
+            json_encode($response, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            [],
+            Frame::CODEC_JSON
+        )));
         fclose($client);
     }
 
@@ -139,5 +180,50 @@ class Master
         pcntl_signal(SIGTERM, function () {
             $this->running = false;
         });
+    }
+
+    private function renderStatus(): void
+    {
+        $status = (new RuntimeStatus(
+            $this->socketPath,
+            $this->gatewaySocketPath,
+            $this->port,
+            $this->goCommand,
+            $this->workerCommand
+        ))->snapshot();
+
+        $output = new BufferedOutput();
+        $output->writeln('');
+        RuntimeStatusRenderer::render($output, $status);
+
+        $content = rtrim($output->fetch(), "\n");
+        if ($this->statusSection) {
+            $this->statusSection->overwrite($content);
+            return;
+        }
+        $this->output->writeln($content);
+    }
+
+    private function receiveFrame($client): ?Frame
+    {
+        $header = fread($client, 12);
+        if ($header === false || strlen($header) !== 12) {
+            return null;
+        }
+
+        $parts = Frame::readHeader($header);
+        $length = ($parts[1] * 4) + $parts[2];
+        $payload = '';
+
+        while ($length > 0) {
+            $chunk = fread($client, $length);
+            if ($chunk === false || $chunk === '') {
+                return null;
+            }
+            $payload .= $chunk;
+            $length -= strlen($chunk);
+        }
+
+        return Frame::initFrame($parts, $payload);
     }
 }

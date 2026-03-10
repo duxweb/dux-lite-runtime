@@ -11,6 +11,7 @@ import (
 	"github.com/duxweb/dux-runtime/runtime/internal/queue"
 	"github.com/duxweb/dux-runtime/runtime/internal/realtime"
 	"github.com/duxweb/dux-runtime/runtime/internal/scheduler"
+	"github.com/duxweb/dux-runtime/runtime/internal/status"
 	"github.com/duxweb/dux-runtime/runtime/internal/workerpool"
 )
 
@@ -28,13 +29,14 @@ func New(cfg *config.Config) (*App, error) {
 	}
 
 	master := phpmaster.NewClient(cfg.ControlSocketPath)
-	workers := workerpool.New(cfg, phpworker.NewFactory(cfg))
+	state := status.New()
+	workers := workerpool.New(cfg, phpworker.NewFactory(cfg), state)
 
 	return &App{
 		runners: []Runner{
-			realtime.New(cfg, master),
-			scheduler.New(cfg, master, workers),
-			queue.New(cfg, master, workers),
+			realtime.New(cfg, master, state),
+			scheduler.New(cfg, master, workers, state),
+			queue.New(cfg, master, workers, state),
 			workers,
 		},
 	}, nil

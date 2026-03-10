@@ -11,12 +11,15 @@ import (
 type Config struct {
 	LogLevel              string
 	Workers               int
+	MaxWorkers            int
+	ScaleUpStep           int
 	WorkerMaxJobs         int
 	WorkerMaxMemoryMB     int
 	WorkerIdleTTLSeconds  int
 	RestartOnCrash        bool
 	TaskTimeoutSeconds    int
 	ControlSocketPath     string
+	GatewaySocketPath     string
 	ProjectRoot           string
 	PHPWorkerCommand      string
 	PHPWorkerWorkdir      string
@@ -35,12 +38,15 @@ func Load() (*Config, error) {
 	cfg := &Config{
 		LogLevel:              getenv("DUX_RUNTIME_LOG_LEVEL", "info"),
 		Workers:               getenvInt("DUX_RUNTIME_WORKERS", 4),
+		MaxWorkers:            getenvInt("DUX_RUNTIME_MAX_WORKERS", 0),
+		ScaleUpStep:           getenvInt("DUX_RUNTIME_SCALE_UP_STEP", 1),
 		WorkerMaxJobs:         getenvInt("DUX_RUNTIME_WORKER_MAX_JOBS", 1000),
 		WorkerMaxMemoryMB:     getenvInt("DUX_RUNTIME_WORKER_MAX_MEMORY_MB", 256),
 		WorkerIdleTTLSeconds:  getenvInt("DUX_RUNTIME_WORKER_IDLE_TTL", 300),
 		RestartOnCrash:        getenvBool("DUX_RUNTIME_RESTART_ON_CRASH", true),
 		TaskTimeoutSeconds:    getenvInt("DUX_RUNTIME_TASK_TIMEOUT", 30),
 		ControlSocketPath:     getenv("DUX_RUNTIME_CONTROL_SOCKET", "/tmp/dux-lite-runtime.sock"),
+		GatewaySocketPath:     getenv("DUX_RUNTIME_GATEWAY_SOCKET", "/tmp/dux-lite-gateway.sock"),
 		ProjectRoot:           projectRoot,
 		PHPWorkerCommand:      getenv("DUX_RUNTIME_PHP_WORKER_COMMAND", inferWorkerCommand(projectRoot)),
 		PHPWorkerWorkdir:      getenv("DUX_RUNTIME_PHP_WORKER_WORKDIR", projectRoot),
@@ -56,6 +62,9 @@ func Load() (*Config, error) {
 
 	if cfg.Workers <= 0 {
 		cfg.Workers = 1
+	}
+	if cfg.ScaleUpStep <= 0 {
+		cfg.ScaleUpStep = 1
 	}
 	if cfg.QueuePullLimit <= 0 {
 		cfg.QueuePullLimit = 1

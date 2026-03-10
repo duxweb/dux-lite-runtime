@@ -9,6 +9,7 @@ import (
 
 	"github.com/duxweb/dux-runtime/runtime/internal/config"
 	"github.com/duxweb/dux-runtime/runtime/internal/phpmaster"
+	"github.com/duxweb/dux-runtime/runtime/internal/status"
 	"github.com/duxweb/dux-runtime/runtime/internal/task"
 	"github.com/duxweb/dux-runtime/runtime/internal/workerpool"
 )
@@ -17,14 +18,16 @@ type Service struct {
 	config *config.Config
 	master *phpmaster.Client
 	pool   *workerpool.Pool
+	state  *status.State
 	wg     sync.WaitGroup
 }
 
-func New(cfg *config.Config, master *phpmaster.Client, pool *workerpool.Pool) *Service {
+func New(cfg *config.Config, master *phpmaster.Client, pool *workerpool.Pool, state *status.State) *Service {
 	return &Service{
 		config: cfg,
 		master: master,
 		pool:   pool,
+		state:  state,
 	}
 }
 
@@ -53,6 +56,9 @@ func (s *Service) tick(ctx context.Context, now time.Time) error {
 	if err != nil {
 		return err
 	}
+	if s.state != nil && len(jobs) > 0 {
+		s.state.IncSchedulerPulled(len(jobs))
+	}
 	for _, job := range jobs {
 		s.wg.Add(1)
 		go func(job task.Envelope) {
@@ -72,6 +78,9 @@ func (s *Service) handleJob(ctx context.Context, job task.Envelope) {
 		report.Result = result.Result
 	} else {
 		report.Error = err.Error()
+	}
+	if s.state != nil {
+		s.state.IncSchedulerReported(err != nil)
 	}
 
 	if reportErr := s.master.ReportSchedule(ctx, report); reportErr != nil && !errors.Is(reportErr, phpmaster.ErrUnavailable) {

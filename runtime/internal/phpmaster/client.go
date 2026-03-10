@@ -1,7 +1,6 @@
 package phpmaster
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -11,6 +10,8 @@ import (
 	"time"
 
 	"github.com/duxweb/dux-runtime/runtime/internal/task"
+	"github.com/roadrunner-server/goridge/v3/pkg/frame"
+	"github.com/roadrunner-server/goridge/v3/pkg/socket"
 )
 
 var ErrUnavailable = errors.New("php master transport unavailable")
@@ -35,6 +36,40 @@ type WsAuthResponse struct {
 	Meta           map[string]any      `json:"meta,omitempty"`
 }
 
+type WsActionRequest struct {
+	App      string         `json:"app"`
+	ClientID string         `json:"client_id"`
+	Topic    string         `json:"topic"`
+	Target   string         `json:"target"`
+	Payload  map[string]any `json:"payload,omitempty"`
+	Meta     map[string]any `json:"meta,omitempty"`
+}
+
+type WsGatewayEvent struct {
+	Event    string         `json:"event"`
+	App      string         `json:"app"`
+	ClientID string         `json:"client_id"`
+	Meta     map[string]any `json:"meta,omitempty"`
+}
+
+type WsMessageRequest struct {
+	ID        string         `json:"id"`
+	Type      string         `json:"type"`
+	App       string         `json:"app"`
+	ClientID  string         `json:"client_id"`
+	Topic     string         `json:"topic"`
+	Target    string         `json:"target"`
+	Payload   map[string]any `json:"payload,omitempty"`
+	Meta      map[string]any `json:"meta,omitempty"`
+	ReplyTo   string         `json:"reply_to"`
+	Timestamp int64          `json:"timestamp"`
+}
+
+type WsActionResponse struct {
+	Allow bool           `json:"allow"`
+	Meta  map[string]any `json:"meta,omitempty"`
+}
+
 type Backend interface {
 	QueueConfig(context.Context) ([]QueueWorkerConfig, error)
 	PullQueue(context.Context, string, int) ([]task.Envelope, error)
@@ -43,6 +78,10 @@ type Backend interface {
 	PullSchedule(context.Context, time.Time, int) ([]task.Envelope, error)
 	ReportSchedule(context.Context, ScheduleReport) error
 	WsAuth(context.Context, WsAuthRequest) (*WsAuthResponse, error)
+	WsSubscribe(context.Context, WsActionRequest) (*WsActionResponse, error)
+	WsPublish(context.Context, WsActionRequest) (*WsActionResponse, error)
+	WsEvent(context.Context, WsGatewayEvent) (*WsActionResponse, error)
+	WsMessage(context.Context, WsMessageRequest) (*WsActionResponse, error)
 }
 
 type Client struct {
@@ -113,6 +152,22 @@ func (c *Client) WsAuth(ctx context.Context, request WsAuthRequest) (*WsAuthResp
 	return c.backend.WsAuth(ctx, request)
 }
 
+func (c *Client) WsSubscribe(ctx context.Context, request WsActionRequest) (*WsActionResponse, error) {
+	return c.backend.WsSubscribe(ctx, request)
+}
+
+func (c *Client) WsPublish(ctx context.Context, request WsActionRequest) (*WsActionResponse, error) {
+	return c.backend.WsPublish(ctx, request)
+}
+
+func (c *Client) WsEvent(ctx context.Context, request WsGatewayEvent) (*WsActionResponse, error) {
+	return c.backend.WsEvent(ctx, request)
+}
+
+func (c *Client) WsMessage(ctx context.Context, request WsMessageRequest) (*WsActionResponse, error) {
+	return c.backend.WsMessage(ctx, request)
+}
+
 type NoopBackend struct{}
 
 func (NoopBackend) QueueConfig(context.Context) ([]QueueWorkerConfig, error) {
@@ -140,6 +195,22 @@ func (NoopBackend) ReportSchedule(context.Context, ScheduleReport) error {
 }
 
 func (NoopBackend) WsAuth(context.Context, WsAuthRequest) (*WsAuthResponse, error) {
+	return nil, ErrUnavailable
+}
+
+func (NoopBackend) WsSubscribe(context.Context, WsActionRequest) (*WsActionResponse, error) {
+	return nil, ErrUnavailable
+}
+
+func (NoopBackend) WsPublish(context.Context, WsActionRequest) (*WsActionResponse, error) {
+	return nil, ErrUnavailable
+}
+
+func (NoopBackend) WsEvent(context.Context, WsGatewayEvent) (*WsActionResponse, error) {
+	return nil, ErrUnavailable
+}
+
+func (NoopBackend) WsMessage(context.Context, WsMessageRequest) (*WsActionResponse, error) {
 	return nil, ErrUnavailable
 }
 
@@ -232,6 +303,68 @@ func (b *SocketBackend) WsAuth(ctx context.Context, request WsAuthRequest) (*WsA
 	return &response, nil
 }
 
+func (b *SocketBackend) WsSubscribe(ctx context.Context, request WsActionRequest) (*WsActionResponse, error) {
+	var response WsActionResponse
+	if err := b.call(ctx, "Ws.Subscribe", map[string]any{
+		"app":       request.App,
+		"client_id": request.ClientID,
+		"topic":     request.Topic,
+		"target":    request.Target,
+		"payload":   request.Payload,
+		"meta":      request.Meta,
+	}, &response); err != nil {
+		return nil, err
+	}
+	return &response, nil
+}
+
+func (b *SocketBackend) WsPublish(ctx context.Context, request WsActionRequest) (*WsActionResponse, error) {
+	var response WsActionResponse
+	if err := b.call(ctx, "Ws.Publish", map[string]any{
+		"app":       request.App,
+		"client_id": request.ClientID,
+		"topic":     request.Topic,
+		"target":    request.Target,
+		"payload":   request.Payload,
+		"meta":      request.Meta,
+	}, &response); err != nil {
+		return nil, err
+	}
+	return &response, nil
+}
+
+func (b *SocketBackend) WsEvent(ctx context.Context, request WsGatewayEvent) (*WsActionResponse, error) {
+	var response WsActionResponse
+	if err := b.call(ctx, "Ws.Event", map[string]any{
+		"event":     request.Event,
+		"app":       request.App,
+		"client_id": request.ClientID,
+		"meta":      request.Meta,
+	}, &response); err != nil {
+		return nil, err
+	}
+	return &response, nil
+}
+
+func (b *SocketBackend) WsMessage(ctx context.Context, request WsMessageRequest) (*WsActionResponse, error) {
+	var response WsActionResponse
+	if err := b.call(ctx, "Ws.Message", map[string]any{
+		"id":        request.ID,
+		"type":      request.Type,
+		"app":       request.App,
+		"client_id": request.ClientID,
+		"topic":     request.Topic,
+		"target":    request.Target,
+		"payload":   request.Payload,
+		"meta":      request.Meta,
+		"reply_to":  request.ReplyTo,
+		"timestamp": request.Timestamp,
+	}, &response); err != nil {
+		return nil, err
+	}
+	return &response, nil
+}
+
 func (b *SocketBackend) call(ctx context.Context, method string, params map[string]any, result any) error {
 	if b.socketPath == "" {
 		return ErrUnavailable
@@ -257,19 +390,28 @@ func (b *SocketBackend) call(ctx context.Context, method string, params map[stri
 	if err != nil {
 		return err
 	}
-	payload = append(payload, '\n')
+	relay := socket.NewSocketRelay(conn)
+	fr := frame.NewFrame()
+	fr.WriteVersion(fr.Header(), frame.Version1)
+	fr.WriteFlags(fr.Header(), frame.CodecJSON)
+	fr.WritePayloadLen(fr.Header(), uint32(len(payload)))
+	fr.WritePayload(payload)
+	fr.WriteCRC(fr.Header())
 
-	if _, err = conn.Write(payload); err != nil {
+	if err = relay.Send(fr); err != nil {
 		return err
 	}
 
-	line, err := bufio.NewReader(conn).ReadBytes('\n')
-	if err != nil {
+	respFrame := frame.NewFrame()
+	if err = relay.Receive(respFrame); err != nil {
 		return err
+	}
+	if !respFrame.VerifyCRC(respFrame.Header()) {
+		return errors.New("php master response crc verification failed")
 	}
 
 	var response rpcResponse
-	if err = json.Unmarshal(line, &response); err != nil {
+	if err = json.Unmarshal(respFrame.Payload(), &response); err != nil {
 		return err
 	}
 	if !response.OK {

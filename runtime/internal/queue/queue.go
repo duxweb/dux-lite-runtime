@@ -9,6 +9,7 @@ import (
 
 	"github.com/duxweb/dux-runtime/runtime/internal/config"
 	"github.com/duxweb/dux-runtime/runtime/internal/phpmaster"
+	"github.com/duxweb/dux-runtime/runtime/internal/status"
 	"github.com/duxweb/dux-runtime/runtime/internal/task"
 	"github.com/duxweb/dux-runtime/runtime/internal/workerpool"
 )
@@ -16,11 +17,16 @@ import (
 type Service struct {
 	config      *config.Config
 	master      *phpmaster.Client
-	pool        *workerpool.Pool
+	pool        Executor
+	state       *status.State
 	wg          sync.WaitGroup
 	mu          sync.Mutex
 	workers     map[string]*workerState
 	lastRefresh time.Time
+}
+
+type Executor interface {
+	Execute(context.Context, task.Envelope) (task.Result, error)
 }
 
 type workerState struct {
@@ -28,11 +34,12 @@ type workerState struct {
 	active int
 }
 
-func New(cfg *config.Config, master *phpmaster.Client, pool *workerpool.Pool) *Service {
+func New(cfg *config.Config, master *phpmaster.Client, pool Executor, state *status.State) *Service {
 	return &Service{
 		config:  cfg,
 		master:  master,
 		pool:    pool,
+		state:   state,
 		workers: map[string]*workerState{},
 	}
 }
@@ -76,6 +83,9 @@ func (s *Service) tick(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		if s.state != nil && len(jobs) > 0 {
+			s.state.IncQueuePulled(len(jobs))
+		}
 		for _, job := range jobs {
 			s.markActive(worker.config.Name, 1)
 			s.wg.Add(1)
@@ -93,6 +103,9 @@ func (s *Service) tick(ctx context.Context) error {
 func (s *Service) handleJob(ctx context.Context, job task.Envelope) {
 	result, err := s.pool.Execute(ctx, job)
 	if err == nil {
+		if s.state != nil {
+			s.state.IncQueueAcked()
+		}
 		if ackErr := s.master.AckQueue(ctx, job.ID, result.Result); ackErr != nil && !errors.Is(ackErr, phpmaster.ErrUnavailable) {
 			log.Printf("queue: ack failed for %s: %v", job.ID, ackErr)
 		}
@@ -107,6 +120,9 @@ func (s *Service) handleJob(ctx context.Context, job task.Envelope) {
 	}
 	if failErr := s.master.FailQueue(ctx, job.ID, message, retryable); failErr != nil && !errors.Is(failErr, phpmaster.ErrUnavailable) {
 		log.Printf("queue: fail report failed for %s: %v", job.ID, failErr)
+	}
+	if s.state != nil {
+		s.state.IncQueueFailed()
 	}
 }
 
@@ -129,8 +145,6 @@ func (s *Service) refreshWorkers(ctx context.Context) error {
 	}
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	next := map[string]*workerState{}
 	for _, item := range items {
 		if item.Name == "" {
@@ -150,14 +164,16 @@ func (s *Service) refreshWorkers(ctx context.Context) error {
 	}
 	s.workers = next
 	s.lastRefresh = time.Now()
+	s.mu.Unlock()
+	s.syncState()
 	return nil
 }
 
 func (s *Service) useFallbackWorkers() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	if time.Since(s.lastRefresh) < s.config.QueueConfigRefresh && len(s.workers) > 0 {
+		s.mu.Unlock()
 		return
 	}
 
@@ -180,6 +196,8 @@ func (s *Service) useFallbackWorkers() {
 	}
 	s.workers = next
 	s.lastRefresh = time.Now()
+	s.mu.Unlock()
+	s.syncState()
 }
 
 func (s *Service) snapshotWorkers() []*workerState {
@@ -206,6 +224,9 @@ func (s *Service) markActive(name string, delta int) {
 	if item.active < 0 {
 		item.active = 0
 	}
+	if s.state != nil {
+		s.state.SetQueueWorkerActive(name, item.active)
+	}
 }
 
 func min(a int, b int) int {
@@ -213,4 +234,18 @@ func min(a int, b int) int {
 		return a
 	}
 	return b
+}
+
+func (s *Service) syncState() {
+	if s.state == nil {
+		return
+	}
+	items := s.snapshotWorkers()
+	configs := make([]phpmaster.QueueWorkerConfig, 0, len(items))
+	active := map[string]int{}
+	for _, item := range items {
+		configs = append(configs, item.config)
+		active[item.config.Name] = item.active
+	}
+	s.state.SetQueueWorkers(configs, active)
 }

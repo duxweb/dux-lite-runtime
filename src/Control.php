@@ -21,6 +21,10 @@ class Control
             'Schedule.Pull' => App::scheduler()->pullRuntimeTasks($params['now'] ?? 'now', (int)($params['limit'] ?? 1)),
             'Schedule.Report' => $this->reportSchedule($params),
             'Ws.Auth' => $this->auth($params),
+            'Ws.Subscribe' => $this->authorize('runtime.ws.subscribe', $params),
+            'Ws.Publish' => $this->authorize('runtime.ws.publish', $params),
+            'Ws.Event' => $this->event($params),
+            'Ws.Message' => $this->message($params),
             default => throw new Exception('runtime method not supported: ' . $method),
         };
     }
@@ -37,9 +41,11 @@ class Control
 
     private function auth(array $params): array
     {
-        $callback = getenv('DUX_RUNTIME_WS_AUTH_CALLBACK') ?: '';
+        $callback = RuntimeConfig::wsAuthCallback();
         if (!$callback) {
-            throw new Exception('runtime ws auth callback not configured');
+            $event = new WsEvent('runtime.ws.auth', $params);
+            App::event()->dispatch($event, 'runtime.ws.auth');
+            return $event->response();
         }
 
         [$class, $method] = str_contains($callback, ':') ? explode(':', $callback, 2) : [$callback, '__invoke'];
@@ -61,6 +67,44 @@ class Control
             'allow_subscribe' => is_array($auth['allow_subscribe'] ?? null) ? $auth['allow_subscribe'] : [],
             'allow_publish' => is_array($auth['allow_publish'] ?? null) ? $auth['allow_publish'] : [],
             'meta' => is_array($auth['meta'] ?? null) ? $auth['meta'] : [],
+        ];
+    }
+
+    private function authorize(string $eventName, array $params): array
+    {
+        $event = new WsEvent($eventName, $params);
+        App::event()->dispatch($event, $eventName);
+
+        return [
+            'allow' => $event->allowed(),
+            'meta' => $event->response(),
+        ];
+    }
+
+    private function event(array $params): array
+    {
+        $name = (string)($params['event'] ?? '');
+        if (!$name) {
+            throw new Exception('runtime ws event is required');
+        }
+
+        $event = new WsEvent('runtime.ws.' . $name, $params);
+        App::event()->dispatch($event, 'runtime.ws.' . $name);
+
+        return [
+            'ok' => true,
+            'meta' => $event->response(),
+        ];
+    }
+
+    private function message(array $params): array
+    {
+        $event = new WsEvent('runtime.ws.message', $params);
+        App::event()->dispatch($event, 'runtime.ws.message');
+
+        return [
+            'ok' => $event->allowed(),
+            'meta' => $event->response(),
         ];
     }
 

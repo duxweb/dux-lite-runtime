@@ -1,6 +1,4 @@
 /vendor/
-/runtime/bin/
-/runtime/dux-runtime
 /runtime/.DS_Store
 /\.DS_Store
 /composer.lock

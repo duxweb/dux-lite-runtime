@@ -5,21 +5,28 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"net"
 	"net/http"
 
 	"github.com/duxweb/dux-runtime/runtime/internal/config"
+	"github.com/duxweb/dux-runtime/runtime/internal/gateway"
 	"github.com/duxweb/dux-runtime/runtime/internal/phpmaster"
+	"github.com/duxweb/dux-runtime/runtime/internal/status"
 )
 
 type Service struct {
 	config *config.Config
 	master *phpmaster.Client
+	state  *status.State
+	gw     *gateway.Service
 }
 
-func New(cfg *config.Config, master *phpmaster.Client) *Service {
+func New(cfg *config.Config, master *phpmaster.Client, state *status.State) *Service {
 	return &Service{
 		config: cfg,
 		master: master,
+		state:  state,
+		gw:     gateway.New(master, state),
 	}
 }
 
@@ -28,10 +35,22 @@ func (s *Service) Run(ctx context.Context) error {
 		<-ctx.Done()
 		return nil
 	}
+	go func() {
+		if err := s.gw.RunAdmin(ctx, s.config.GatewaySocketPath); err != nil && !errors.Is(err, net.ErrClosed) {
+			log.Printf("gateway admin: %v", err)
+		}
+	}()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", s.handleHealth)
+	mux.HandleFunc("/metrics", s.handleMetrics)
 	mux.HandleFunc("/auth", s.handleAuth)
+	mux.HandleFunc("/ws", s.gw.HandleWS)
+	mux.HandleFunc("/internal/gateway/clients", s.gw.HandleClients)
+	mux.HandleFunc("/internal/gateway/topics", s.gw.HandleTopics)
+	mux.HandleFunc("/internal/gateway/publish", s.gw.HandlePublish)
+	mux.HandleFunc("/internal/gateway/push-client", s.gw.HandlePushClient)
+	mux.HandleFunc("/internal/gateway/kick", s.gw.HandleKick)
 
 	server := &http.Server{
 		Addr:    s.config.RealtimeListenAddr,
@@ -53,9 +72,28 @@ func (s *Service) Run(ctx context.Context) error {
 
 func (s *Service) handleHealth(writer http.ResponseWriter, _ *http.Request) {
 	writer.Header().Set("Content-Type", "application/json")
+	response := map[string]any{
+		"ok":      true,
+		"service": "dux-runtime-realtime",
+	}
+	if s.state != nil {
+		response["runtime"] = s.state.Snapshot()
+	}
+	_ = json.NewEncoder(writer).Encode(response)
+}
+
+func (s *Service) handleMetrics(writer http.ResponseWriter, _ *http.Request) {
+	writer.Header().Set("Content-Type", "application/json")
+	if s.state == nil {
+		_ = json.NewEncoder(writer).Encode(map[string]any{
+			"ok": false,
+		})
+		return
+	}
 	_ = json.NewEncoder(writer).Encode(map[string]any{
 		"ok":      true,
 		"service": "dux-runtime-realtime",
+		"runtime": s.state.Snapshot(),
 	})
 }
 

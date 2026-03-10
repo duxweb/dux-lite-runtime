@@ -1,5 +1,5 @@
 {
-    "name": "duxweb/dux-runtime",
+    "name": "duxweb/dux-lite-runtime",
     "description": "DuxLite runtime extension package",
     "type": "composer-plugin",
     "license": "MIT",
@@ -23,7 +23,8 @@
     },
     "require": {
         "duxweb/dux-lite": "^2.0.13",
-        "composer-plugin-api": "^2.0"
+        "composer-plugin-api": "^2.0",
+        "spiral/goridge": "^4.2"
     },
     "require-dev": {
         "pestphp/pest": "^3.5"
