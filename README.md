@@ -1,6 +1,6 @@
-# Dux Runtime
+# Dux Lite Runtime
 
-`duxweb/dux-runtime` 是 DuxLite 的运行时扩展包。
+`duxweb/dux-lite-runtime` 是 DuxLite 的运行时扩展包。
 
 它把以下能力收口到一个扩展里：
 
@@ -37,15 +37,15 @@
 - Go 环境
   仅在构建二进制时需要，业务使用时不需要 `go run`
 
-可选：
+按队列后端选择安装：
 
-- Redis 扩展
-- `symfony/redis-messenger`
+- Redis 队列需要 `ext-redis` 和 `symfony/redis-messenger`
+- AMQP 队列需要 `ext-amqp` 和 `symfony/amqp-messenger`
 
 ## Install
 
 ```bash
-composer require duxweb/dux-runtime
+composer require duxweb/dux-lite-runtime
 ```
 
 如果是本地开发插件，安装后执行一次：
@@ -190,7 +190,7 @@ php dux runtime:status
 
 队列管理进程（按配置启动并发 worker）。
 
-这两个是 DuxLite 原生 PHP 队列命令，仍可保留；如果使用 `dux-runtime`，通常以 `runtime` 为主。
+这两个是 DuxLite 原生 PHP 队列命令，仍可保留；如果使用 `dux-lite-runtime`，通常以 `runtime` 为主。
 
 ## Queue Runtime Model
 
