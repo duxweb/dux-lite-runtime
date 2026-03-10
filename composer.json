@@ -1,0 +1,40 @@
+{
+    "name": "duxweb/dux-runtime",
+    "description": "DuxLite runtime extension package",
+    "type": "composer-plugin",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Core\\Runtime\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Core\\Runtime\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "class": "Core\\Runtime\\Plugin",
+        "duxlite": {
+            "providers": [
+                "Core\\Runtime\\RuntimeServiceProvider"
+            ]
+        }
+    },
+    "require": {
+        "duxweb/dux-lite": "^2.0.13",
+        "composer-plugin-api": "^2.0"
+    },
+    "require-dev": {
+        "pestphp/pest": "^3.5"
+    },
+    "config": {
+        "allow-plugins": {
+            "pestphp/pest-plugin": true,
+            "*": true
+        }
+    },
+    "scripts": {
+        "test": "./vendor/bin/pest"
+    }
+}
