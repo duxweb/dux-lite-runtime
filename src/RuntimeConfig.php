@@ -72,6 +72,11 @@ class RuntimeConfig
         return (string)self::get('worker_command', 'php dux runtime --worker');
     }
 
+    public static function pidFile(): string
+    {
+        return self::endpoint((string)self::get('pid_file', data_path('runtime/master.pid')));
+    }
+
     public static function workerMaxJobs(): int
     {
         $value = (int)self::get('worker_max_jobs', 1000);

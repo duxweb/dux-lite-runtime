@@ -30,6 +30,7 @@ class RuntimeStatus
             'overview' => [
                 ['Control endpoint', $this->socketPath],
                 ['Gateway endpoint', $this->gatewaySocketPath],
+                ['PID file', RuntimeConfig::pidFile()],
                 ['Realtime port', (string)$this->port],
                 ['WS URL', 'ws://127.0.0.1:' . $this->port . '/ws'],
                 ['Health URL', 'http://127.0.0.1:' . $this->port . '/healthz'],

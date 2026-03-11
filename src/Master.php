@@ -31,6 +31,7 @@ class Master
 
     public function run(): int
     {
+        $this->persistPid();
         $this->bootSignals();
         $server = $this->createControlServer();
         if (!$server) {
@@ -71,6 +72,7 @@ class Master
             $this->cleanupEndpoint();
             RuntimeConfig::clearPersistedEndpoint('control');
             RuntimeConfig::clearPersistedEndpoint('gateway');
+            $this->cleanupPid();
 
             if ($process && $process->isRunning()) {
                 $process->stop(3);
@@ -229,6 +231,28 @@ class Master
             return $endpoint;
         }
         return str_starts_with($name, 'tcp://') ? $name : 'tcp://' . $name;
+    }
+
+    private function persistPid(): void
+    {
+        $file = RuntimeConfig::pidFile();
+        $dir = dirname($file);
+        if (!is_dir($dir)) {
+            mkdir($dir, 0777, true);
+        }
+        file_put_contents($file, (string)getmypid());
+    }
+
+    private function cleanupPid(): void
+    {
+        $file = RuntimeConfig::pidFile();
+        if (!is_file($file)) {
+            return;
+        }
+        $pid = trim((string)file_get_contents($file));
+        if ($pid === (string)getmypid()) {
+            @unlink($file);
+        }
     }
 
     private function bootSignals(): void

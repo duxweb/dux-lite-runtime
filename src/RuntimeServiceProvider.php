@@ -14,6 +14,7 @@ class RuntimeServiceProvider implements PluginProvider
         return [
             RuntimeCommand::class,
             RuntimeStatusCommand::class,
+            RuntimeRestartCommand::class,
         ];
     }
 
