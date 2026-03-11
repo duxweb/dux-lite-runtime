@@ -22,12 +22,12 @@
         }
     },
     "require": {
-        "duxweb/dux-lite": "^2.0.13",
+        "duxweb/dux-lite": "^2.4.0",
         "composer-plugin-api": "^2.0",
         "spiral/goridge": "^4.2"
     },
     "require-dev": {
-        "pestphp/pest": "^3.5"
+        "pestphp/pest": "*"
     },
     "config": {
         "allow-plugins": {
