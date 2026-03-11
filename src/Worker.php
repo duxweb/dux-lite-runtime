@@ -13,8 +13,12 @@ use Spiral\Goridge\Relay;
 
 class Worker
 {
+    private string $runId = '';
+
     public function run(int $maxJobs = 0): int
     {
+        $this->bootRunId();
+
         $relay = Relay::create('pipes');
         $jobs = 0;
         while (true) {
@@ -96,7 +100,7 @@ class Worker
 
         putenv('DUX_QUEUE_WORK=' . ($payload['worker'] ?? ''));
         putenv('DUX_QUEUE_PRIORITY=' . ($payload['priority'] ?? 'medium'));
-        putenv('DUX_QUEUE_RUN_ID=runtime-' . getmypid());
+        putenv('DUX_QUEUE_RUN_ID=' . $this->runId);
 
         (new QueueJobMessageHandler())->__invoke(new QueueJobMessage(
             $class,
@@ -126,5 +130,15 @@ class Worker
         return [
             'task' => $callback,
         ];
+    }
+
+    private function bootRunId(): void
+    {
+        $runId = (string)(getenv('DUX_QUEUE_RUN_ID') ?: '');
+        if ($runId === '') {
+            $runId = 'runtime-' . date('YmdHis') . '-' . getmypid();
+            putenv('DUX_QUEUE_RUN_ID=' . $runId);
+        }
+        $this->runId = $runId;
     }
 }
