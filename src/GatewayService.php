@@ -64,7 +64,7 @@ class GatewayService
         if ($this->rpc) {
             return $this->rpc;
         }
-        return $this->rpc = RPC::create('unix://' . $this->socketPath);
+        return $this->rpc = RPC::create($this->socketPath);
     }
 
     private function toRpcObject(array $payload): object

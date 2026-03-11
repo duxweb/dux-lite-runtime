@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -45,8 +46,8 @@ func Load() (*Config, error) {
 		WorkerIdleTTLSeconds:  getenvInt("DUX_RUNTIME_WORKER_IDLE_TTL", 300),
 		RestartOnCrash:        getenvBool("DUX_RUNTIME_RESTART_ON_CRASH", true),
 		TaskTimeoutSeconds:    getenvInt("DUX_RUNTIME_TASK_TIMEOUT", 30),
-		ControlSocketPath:     getenv("DUX_RUNTIME_CONTROL_SOCKET", "/tmp/dux-lite-runtime.sock"),
-		GatewaySocketPath:     getenv("DUX_RUNTIME_GATEWAY_SOCKET", "/tmp/dux-lite-gateway.sock"),
+		ControlSocketPath:     getenv("DUX_RUNTIME_CONTROL_SOCKET", defaultControlEndpoint()),
+		GatewaySocketPath:     getenv("DUX_RUNTIME_GATEWAY_SOCKET", defaultGatewayEndpoint()),
 		ProjectRoot:           projectRoot,
 		PHPWorkerCommand:      getenv("DUX_RUNTIME_PHP_WORKER_COMMAND", inferWorkerCommand(projectRoot)),
 		PHPWorkerWorkdir:      getenv("DUX_RUNTIME_PHP_WORKER_WORKDIR", projectRoot),
@@ -86,6 +87,20 @@ func Load() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func defaultControlEndpoint() string {
+	if runtime.GOOS == "windows" {
+		return "tcp://127.0.0.1:0"
+	}
+	return "/tmp/dux-lite-runtime.sock"
+}
+
+func defaultGatewayEndpoint() string {
+	if runtime.GOOS == "windows" {
+		return "tcp://127.0.0.1:0"
+	}
+	return "/tmp/dux-lite-gateway.sock"
 }
 
 func inferProjectRoot() string {

@@ -4,10 +4,9 @@ import (
 	"context"
 	"net"
 	"net/rpc"
-	"os"
-	"path/filepath"
 	"time"
 
+	"github.com/duxweb/dux-runtime/runtime/internal/transport"
 	goridgeRpc "github.com/roadrunner-server/goridge/v3/pkg/rpc"
 )
 
@@ -17,17 +16,17 @@ func (g *Service) RunAdmin(ctx context.Context, socketPath string) error {
 		return nil
 	}
 
-	if err := os.MkdirAll(filepath.Dir(socketPath), 0o777); err != nil {
+	network, address := transport.ParseEndpoint(socketPath)
+	if err := transport.PrepareEndpoint(network, address); err != nil {
 		return err
 	}
-	_ = os.Remove(socketPath)
-	listener, err := net.Listen("unix", socketPath)
+	listener, err := net.Listen(network, address)
 	if err != nil {
 		return err
 	}
 	defer func() {
 		_ = listener.Close()
-		_ = os.Remove(socketPath)
+		transport.CleanupEndpoint(network, address)
 	}()
 
 	server := rpc.NewServer()

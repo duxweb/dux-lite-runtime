@@ -142,6 +142,13 @@ ws_fallback = true
 queue_metrics = false
 ```
 
+Windows 说明：
+
+- Windows 默认不会使用 Unix socket
+- `control_socket` 和 `gateway_socket` 会自动退化为本地 TCP endpoint
+- 默认使用 `tcp://127.0.0.1:0` 随机端口模式
+- runtime 启动后会把实际地址写入 `data/runtime/control.endpoint` 和 `data/runtime/gateway.endpoint`
+
 ## Commands
 
 ### `runtime`

@@ -25,8 +25,8 @@ class RuntimeCommand extends BaseCommand
             ->setDescription('Start Dux runtime master or internal worker mode')
             ->addOption('worker', null, InputOption::VALUE_NONE, 'Run internal worker mode')
             ->addOption('port', 'p', InputOption::VALUE_OPTIONAL, 'Realtime listen port', (string)RuntimeConfig::realtimePort())
-            ->addOption('socket', null, InputOption::VALUE_OPTIONAL, 'Control socket path', RuntimeConfig::socketPath())
-            ->addOption('gateway-socket', null, InputOption::VALUE_OPTIONAL, 'Gateway admin socket path', RuntimeConfig::gatewaySocketPath())
+            ->addOption('socket', null, InputOption::VALUE_OPTIONAL, 'Control endpoint', RuntimeConfig::socketPath())
+            ->addOption('gateway-socket', null, InputOption::VALUE_OPTIONAL, 'Gateway admin endpoint', RuntimeConfig::gatewaySocketPath())
             ->addOption('go-command', null, InputOption::VALUE_OPTIONAL, 'Go runtime command', $this->inferGoCommand())
             ->addOption('without-go', null, InputOption::VALUE_NONE, 'Start php master only without Go runtime')
             ->addOption('check', null, InputOption::VALUE_NONE, 'Check runtime configuration only')
@@ -44,8 +44,8 @@ class RuntimeCommand extends BaseCommand
 
         $io = new SymfonyStyle($input, $output);
         $port = (int)$input->getOption('port');
-        $socket = $input->getOption('socket') ?: data_path('runtime/master.sock');
-        $gatewaySocket = $input->getOption('gateway-socket') ?: data_path('runtime/gateway.sock');
+        $socket = $input->getOption('socket') ?: RuntimeConfig::socketPath();
+        $gatewaySocket = $input->getOption('gateway-socket') ?: RuntimeConfig::gatewaySocketPath();
         $withoutGo = (bool)$input->getOption('without-go');
         $goCommand = $withoutGo ? '' : ($input->getOption('go-command') ?: '');
         $workerCommand = RuntimeConfig::workerCommand();

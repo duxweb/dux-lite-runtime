@@ -32,14 +32,16 @@ class Master
     public function run(): int
     {
         $this->bootSignals();
-        $this->prepareSocketPath();
-
-        $server = @stream_socket_server('unix://' . $this->socketPath, $errno, $error);
+        $server = $this->createControlServer();
         if (!$server) {
-            throw new \RuntimeException('runtime socket listen failed: ' . $error . ' (' . $errno . ')');
+            throw new \RuntimeException('runtime endpoint listen failed');
         }
 
         stream_set_blocking($server, false);
+        $this->resolveGatewayEndpoint();
+        RuntimeConfig::persistEndpoint('control', $this->socketPath);
+        RuntimeConfig::persistEndpoint('gateway', $this->gatewaySocketPath);
+
         $process = $this->startGoProcess();
         $nextStatusAt = time();
 
@@ -66,7 +68,9 @@ class Master
             }
         } finally {
             fclose($server);
-            @unlink($this->socketPath);
+            $this->cleanupEndpoint();
+            RuntimeConfig::clearPersistedEndpoint('control');
+            RuntimeConfig::clearPersistedEndpoint('gateway');
 
             if ($process && $process->isRunning()) {
                 $process->stop(3);
@@ -156,15 +160,75 @@ class Master
         fclose($client);
     }
 
-    private function prepareSocketPath(): void
+    private function createControlServer()
     {
-        $dir = dirname($this->socketPath);
+        $this->prepareEndpoint($this->socketPath);
+        $server = @stream_socket_server(RuntimeConfig::streamServerUri($this->socketPath), $errno, $error);
+        if (!$server) {
+            throw new \RuntimeException('runtime control endpoint listen failed: ' . $error . ' (' . $errno . ')');
+        }
+        $this->socketPath = $this->resolveBoundEndpoint($this->socketPath, $server);
+        return $server;
+    }
+
+    private function resolveGatewayEndpoint(): void
+    {
+        if (!RuntimeConfig::isTcpEndpoint($this->gatewaySocketPath)) {
+            return;
+        }
+        $this->gatewaySocketPath = $this->reserveTcpEndpoint($this->gatewaySocketPath);
+    }
+
+    private function prepareEndpoint(string $endpoint): void
+    {
+        if (RuntimeConfig::isTcpEndpoint($endpoint)) {
+            return;
+        }
+
+        $dir = dirname($endpoint);
         if (!is_dir($dir)) {
             mkdir($dir, 0777, true);
+        }
+        if (is_file($endpoint) || file_exists($endpoint)) {
+            @unlink($endpoint);
+        }
+    }
+
+    private function cleanupEndpoint(): void
+    {
+        if (RuntimeConfig::isTcpEndpoint($this->socketPath)) {
+            return;
         }
         if (is_file($this->socketPath) || file_exists($this->socketPath)) {
             @unlink($this->socketPath);
         }
+    }
+
+    private function resolveBoundEndpoint(string $endpoint, $server): string
+    {
+        if (!RuntimeConfig::isTcpEndpoint($endpoint)) {
+            return $endpoint;
+        }
+
+        $name = (string)stream_socket_get_name($server, false);
+        if ($name === '') {
+            return $endpoint;
+        }
+        return str_starts_with($name, 'tcp://') ? $name : 'tcp://' . $name;
+    }
+
+    private function reserveTcpEndpoint(string $endpoint): string
+    {
+        $server = @stream_socket_server($endpoint, $errno, $error);
+        if (!$server) {
+            throw new \RuntimeException('runtime gateway endpoint reserve failed: ' . $error . ' (' . $errno . ')');
+        }
+        $name = (string)stream_socket_get_name($server, false);
+        fclose($server);
+        if ($name === '') {
+            return $endpoint;
+        }
+        return str_starts_with($name, 'tcp://') ? $name : 'tcp://' . $name;
     }
 
     private function bootSignals(): void

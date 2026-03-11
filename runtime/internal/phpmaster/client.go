@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/duxweb/dux-runtime/runtime/internal/task"
+	"github.com/duxweb/dux-runtime/runtime/internal/transport"
 	"github.com/roadrunner-server/goridge/v3/pkg/frame"
 	"github.com/roadrunner-server/goridge/v3/pkg/socket"
 )
@@ -370,8 +371,9 @@ func (b *SocketBackend) call(ctx context.Context, method string, params map[stri
 		return ErrUnavailable
 	}
 
+	network, address := transport.ParseEndpoint(b.socketPath)
 	var dialer net.Dialer
-	conn, err := dialer.DialContext(ctx, "unix", b.socketPath)
+	conn, err := dialer.DialContext(ctx, network, address)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrUnavailable, err)
 	}

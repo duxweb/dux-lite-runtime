@@ -15,12 +15,12 @@ class RuntimeConfig
 
     public static function socketPath(): string
     {
-        return self::absolutePath((string)self::get('control_socket', data_path('runtime/master.sock')));
+        return self::resolvedEndpoint('control', (string)self::get('control_socket', self::defaultControlEndpoint()));
     }
 
     public static function gatewaySocketPath(): string
     {
-        return self::absolutePath((string)self::get('gateway_socket', data_path('runtime/gateway.sock')));
+        return self::resolvedEndpoint('gateway', (string)self::get('gateway_socket', self::defaultGatewayEndpoint()));
     }
 
     public static function realtimePort(): int
@@ -151,18 +151,106 @@ class RuntimeConfig
         return $value > 0 ? $value : 30;
     }
 
-    private static function absolutePath(string $path): string
+    public static function endpointProtocol(string $endpoint): string
     {
-        $path = trim($path);
-        if ($path === '') {
-            return $path;
+        return self::isTcpEndpoint($endpoint) ? 'goridge frame over tcp' : 'goridge frame over unix socket';
+    }
+
+    public static function isTcpEndpoint(string $endpoint): bool
+    {
+        return str_starts_with(strtolower(trim($endpoint)), 'tcp://');
+    }
+
+    public static function streamServerUri(string $endpoint): string
+    {
+        return self::isTcpEndpoint($endpoint) ? $endpoint : 'unix://' . $endpoint;
+    }
+
+    public static function persistEndpoint(string $name, string $endpoint): void
+    {
+        $file = self::endpointStateFile($name);
+        $dir = dirname($file);
+        if (!is_dir($dir)) {
+            mkdir($dir, 0777, true);
+        }
+        file_put_contents($file, $endpoint);
+    }
+
+    public static function clearPersistedEndpoint(string $name): void
+    {
+        $file = self::endpointStateFile($name);
+        if (is_file($file)) {
+            @unlink($file);
+        }
+    }
+
+    private static function endpoint(string $endpoint): string
+    {
+        $endpoint = trim($endpoint);
+        if ($endpoint === '') {
+            return $endpoint;
         }
 
-        if (str_starts_with($path, '/') || preg_match('/^[A-Za-z]:[\\\\\\/]/', $path)) {
-            return $path;
+        if (self::isTcpEndpoint($endpoint)) {
+            return $endpoint;
         }
 
-        return base_path($path);
+        if (str_starts_with($endpoint, '/') || preg_match('/^[A-Za-z]:[\\\\\\/]/', $endpoint)) {
+            return $endpoint;
+        }
+
+        return base_path($endpoint);
+    }
+
+    private static function resolvedEndpoint(string $name, string $endpoint): string
+    {
+        $endpoint = self::endpoint($endpoint);
+        if (!self::isDynamicTcpEndpoint($endpoint)) {
+            return $endpoint;
+        }
+
+        $resolved = self::persistedEndpoint($name);
+        return $resolved !== '' ? $resolved : $endpoint;
+    }
+
+    private static function persistedEndpoint(string $name): string
+    {
+        $file = self::endpointStateFile($name);
+        if (!is_file($file)) {
+            return '';
+        }
+        return trim((string)file_get_contents($file));
+    }
+
+    private static function endpointStateFile(string $name): string
+    {
+        return data_path('runtime/' . $name . '.endpoint');
+    }
+
+    private static function isDynamicTcpEndpoint(string $endpoint): bool
+    {
+        if (!self::isTcpEndpoint($endpoint)) {
+            return false;
+        }
+
+        $parts = parse_url($endpoint);
+        return (int)($parts['port'] ?? 0) === 0;
+    }
+
+    private static function defaultControlEndpoint(): string
+    {
+        if (strtolower(PHP_OS_FAMILY) === 'windows') {
+            return 'tcp://127.0.0.1:0';
+        }
+        return data_path('runtime/master.sock');
+    }
+
+    private static function defaultGatewayEndpoint(): string
+    {
+        if (strtolower(PHP_OS_FAMILY) === 'windows') {
+            return 'tcp://127.0.0.1:0';
+        }
+        return data_path('runtime/gateway.sock');
     }
 
     private static function currentPlatform(): array

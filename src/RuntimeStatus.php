@@ -28,15 +28,15 @@ class RuntimeStatus
 
         return [
             'overview' => [
-                ['Socket', $this->socketPath],
-                ['Gateway socket', $this->gatewaySocketPath],
+                ['Control endpoint', $this->socketPath],
+                ['Gateway endpoint', $this->gatewaySocketPath],
                 ['Realtime port', (string)$this->port],
                 ['WS URL', 'ws://127.0.0.1:' . $this->port . '/ws'],
                 ['Health URL', 'http://127.0.0.1:' . $this->port . '/healthz'],
                 ['Metrics URL', 'http://127.0.0.1:' . $this->port . '/metrics'],
                 ['Go command', $this->goCommand ?: 'disabled'],
                 ['Worker command', $this->workerCommand],
-                ['Control protocol', 'goridge frame over unix socket'],
+                ['Control protocol', RuntimeConfig::endpointProtocol($this->socketPath)],
                 ['Worker protocol', 'goridge frame over pipes'],
                 ['Queue poll interval', RuntimeConfig::queuePollInterval()],
                 ['Queue pull limit', (string)RuntimeConfig::queuePullLimit()],
