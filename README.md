@@ -83,18 +83,26 @@ runtime/bin/
 
 ## Runtime Config
 
-在业务项目 `config/use.toml` 或 `config/use.dev.toml` 中配置：
+如需覆盖默认值，可在业务项目 `config/use.toml` 或 `config/use.dev.toml` 中增加。
+
+以下参数均为默认参数，非必填：
 
 ```toml
 [runtime]
+# Go runtime 二进制命令，留空时自动按当前平台查找内置二进制
+go_command = ""
+
 # Go realtime 服务端口
 port = 9504
 
-# Go -> PHP master 控制 socket
+# Go -> PHP master 控制 endpoint
 control_socket = "data/runtime/master.sock"
 
-# PHP -> Go gateway 控制 socket
+# PHP -> Go gateway 控制 endpoint
 gateway_socket = "data/runtime/gateway.sock"
+
+# runtime master 进程 pid 文件
+pid_file = "data/runtime/master.pid"
 
 # PHP worker 启动命令
 worker_command = "php dux runtime --worker"
@@ -137,6 +145,9 @@ status_interval = 10
 
 # 是否启用扩展内置 WS fallback listener
 ws_fallback = true
+
+# 自定义 WS 鉴权回调，留空时走事件监听
+ws_auth_callback = ""
 
 # 是否启用 PHP 文件型队列统计，默认建议关闭
 queue_metrics = false
