@@ -57,7 +57,7 @@ func Load() (*Config, error) {
 		QueuePollInterval:     getenvDuration("DUX_RUNTIME_QUEUE_POLL_INTERVAL", time.Second),
 		SchedulerPullLimit:    getenvInt("DUX_RUNTIME_SCHEDULE_PULL_LIMIT", 8),
 		SchedulerPollInterval: getenvDuration("DUX_RUNTIME_SCHEDULE_POLL_INTERVAL", time.Second),
-		RealtimeEnabled:       getenvBool("DUX_RUNTIME_REALTIME_ENABLED", false),
+		RealtimeEnabled:       getenvBool("DUX_RUNTIME_REALTIME_ENABLED", true),
 		RealtimeListenAddr:    getenv("DUX_RUNTIME_REALTIME_ADDR", ":9504"),
 	}
 

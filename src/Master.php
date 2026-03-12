@@ -96,6 +96,7 @@ class Master
             ...$_ENV,
             'DUX_RUNTIME_CONTROL_SOCKET' => $this->socketPath,
             'DUX_RUNTIME_GATEWAY_SOCKET' => $this->gatewaySocketPath,
+            'DUX_RUNTIME_REALTIME_ENABLED' => '1',
             'DUX_RUNTIME_REALTIME_ADDR' => ':' . $this->port,
             'DUX_RUNTIME_WORKERS' => (string)RuntimeConfig::minWorkers(),
             'DUX_RUNTIME_MAX_WORKERS' => (string)RuntimeConfig::maxWorkers(),
