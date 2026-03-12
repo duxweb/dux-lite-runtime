@@ -34,6 +34,11 @@ class RuntimeConfig
         return (string)self::get('realtime_addr', ':' . self::realtimePort());
     }
 
+    public static function realtimeEnabled(): bool
+    {
+        return (bool)self::get('realtime_enabled', true);
+    }
+
     public static function goCommand(): string
     {
         return (string)self::get('go_command', '');
