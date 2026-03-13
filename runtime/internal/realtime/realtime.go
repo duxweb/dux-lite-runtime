@@ -26,7 +26,7 @@ func New(cfg *config.Config, master *phpmaster.Client, state *status.State) *Ser
 		config: cfg,
 		master: master,
 		state:  state,
-		gw:     gateway.New(master, state),
+		gw:     gateway.New(cfg, master, state),
 	}
 }
 
@@ -46,11 +46,6 @@ func (s *Service) Run(ctx context.Context) error {
 	mux.HandleFunc("/metrics", s.handleMetrics)
 	mux.HandleFunc("/auth", s.handleAuth)
 	mux.HandleFunc("/ws", s.gw.HandleWS)
-	mux.HandleFunc("/internal/gateway/clients", s.gw.HandleClients)
-	mux.HandleFunc("/internal/gateway/topics", s.gw.HandleTopics)
-	mux.HandleFunc("/internal/gateway/publish", s.gw.HandlePublish)
-	mux.HandleFunc("/internal/gateway/push-client", s.gw.HandlePushClient)
-	mux.HandleFunc("/internal/gateway/kick", s.gw.HandleKick)
 
 	server := &http.Server{
 		Addr:    s.config.RealtimeListenAddr,

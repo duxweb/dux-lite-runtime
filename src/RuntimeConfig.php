@@ -176,6 +176,16 @@ class RuntimeConfig
         return self::isTcpEndpoint($endpoint) ? $endpoint : 'unix://' . $endpoint;
     }
 
+    public static function goridgeRpcUri(string $endpoint): string
+    {
+        $endpoint = trim($endpoint);
+        if ($endpoint === '') {
+            return $endpoint;
+        }
+
+        return self::isTcpEndpoint($endpoint) ? $endpoint : 'unix://' . $endpoint;
+    }
+
     public static function persistEndpoint(string $name, string $endpoint): void
     {
         $file = self::endpointStateFile($name);

@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/duxweb/dux-runtime/runtime/internal/config"
 	"github.com/duxweb/dux-runtime/runtime/internal/phpmaster"
 	"github.com/duxweb/dux-runtime/runtime/internal/status"
 	"github.com/olahol/melody"
@@ -46,9 +48,14 @@ type Envelope struct {
 	Timestamp int64          `json:"timestamp"`
 }
 
-func New(master *phpmaster.Client, state *status.State) *Service {
+func New(cfg *config.Config, master *phpmaster.Client, state *status.State) *Service {
+	melodyInstance := melody.New()
+	if cfg != nil && cfg.WSMaxMessageSize > 0 {
+		melodyInstance.Config.MaxMessageSize = cfg.WSMaxMessageSize
+	}
+
 	g := &Service{
-		melody:  melody.New(),
+		melody:  melodyInstance,
 		master:  master,
 		state:   state,
 		clients: map[string]*Client{},
@@ -60,65 +67,6 @@ func New(master *phpmaster.Client, state *status.State) *Service {
 
 func (g *Service) HandleWS(writer http.ResponseWriter, request *http.Request) {
 	_ = g.melody.HandleRequestWithKeys(writer, request, map[string]any{})
-}
-
-func (g *Service) HandleClients(writer http.ResponseWriter, _ *http.Request) {
-	writer.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(writer).Encode(map[string]any{
-		"ok":    true,
-		"items": g.clientsSnapshot(),
-	})
-}
-
-func (g *Service) HandleTopics(writer http.ResponseWriter, _ *http.Request) {
-	writer.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(writer).Encode(map[string]any{
-		"ok":    true,
-		"items": g.topicsSnapshot(),
-	})
-}
-
-func (g *Service) HandlePublish(writer http.ResponseWriter, request *http.Request) {
-	var envelope Envelope
-	if err := json.NewDecoder(request.Body).Decode(&envelope); err != nil {
-		http.Error(writer, err.Error(), http.StatusBadRequest)
-		return
-	}
-	g.publishToTopic(envelope.Topic, envelope)
-	writer.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(writer).Encode(map[string]any{"ok": true})
-}
-
-func (g *Service) HandlePushClient(writer http.ResponseWriter, request *http.Request) {
-	var envelope Envelope
-	if err := json.NewDecoder(request.Body).Decode(&envelope); err != nil {
-		http.Error(writer, err.Error(), http.StatusBadRequest)
-		return
-	}
-	if envelope.Target == "" {
-		http.Error(writer, "target is required", http.StatusBadRequest)
-		return
-	}
-	_ = g.pushClient(envelope.Target, envelope)
-	writer.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(writer).Encode(map[string]any{"ok": true})
-}
-
-func (g *Service) HandleKick(writer http.ResponseWriter, request *http.Request) {
-	var payload struct {
-		ClientID string `json:"client_id"`
-	}
-	if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
-		http.Error(writer, err.Error(), http.StatusBadRequest)
-		return
-	}
-	if payload.ClientID == "" {
-		http.Error(writer, "client_id is required", http.StatusBadRequest)
-		return
-	}
-	_ = g.kick(payload.ClientID)
-	writer.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(writer).Encode(map[string]any{"ok": true})
 }
 
 func (g *Service) bind() {
@@ -287,12 +235,17 @@ func (g *Service) handlePublish(client *Client, envelope Envelope) {
 		Payload:  envelope.Payload,
 		Meta:     envelope.Meta,
 	})
+	if err != nil {
+		log.Printf("gateway: publish callback failed client=%s topic=%s target=%s error=%v", client.ID, envelope.Topic, envelope.Target, err)
+		_ = g.write(client.Session, map[string]any{"type": "error", "id": envelope.ID, "error": "publish callback failed"})
+		return
+	}
 	if err == nil && resp != nil && !resp.Allow {
 		_ = g.write(client.Session, map[string]any{"type": "error", "id": envelope.ID, "error": "publish denied"})
 		return
 	}
 
-	_, _ = g.master.WsMessage(context.Background(), phpmaster.WsMessageRequest{
+	if _, err = g.master.WsMessage(context.Background(), phpmaster.WsMessageRequest{
 		ID:        envelope.ID,
 		Type:      envelope.Type,
 		App:       client.App,
@@ -303,7 +256,11 @@ func (g *Service) handlePublish(client *Client, envelope Envelope) {
 		Meta:      envelope.Meta,
 		ReplyTo:   envelope.ReplyTo,
 		Timestamp: envelope.Timestamp,
-	})
+	}); err != nil {
+		log.Printf("gateway: message callback failed client=%s topic=%s target=%s error=%v", client.ID, envelope.Topic, envelope.Target, err)
+		_ = g.write(client.Session, map[string]any{"type": "error", "id": envelope.ID, "error": "message callback failed"})
+		return
+	}
 
 	if envelope.Target != "" {
 		_ = g.pushClient(envelope.Target, envelope)
@@ -431,7 +388,11 @@ func (g *Service) write(session *melody.Session, payload any) error {
 	if err != nil {
 		return err
 	}
-	return session.Write(body)
+	if err := session.Write(body); err != nil {
+		log.Printf("gateway: session write failed error=%v payload=%s", err, string(body))
+		return err
+	}
+	return nil
 }
 
 func (g *Service) allowTopic(allow map[string][]string, topic string) bool {

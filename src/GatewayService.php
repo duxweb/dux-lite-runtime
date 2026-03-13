@@ -31,11 +31,17 @@ class GatewayService
 
     public function pushClient(string $clientId, array $payload = [], array $meta = []): array
     {
-        return (array)$this->rpc()->call('Gateway.PushClient', $this->toRpcObject([
+        $response = (array)$this->rpc()->call('Gateway.PushClient', $this->toRpcObject([
             'client_id' => $clientId,
             'payload' => $payload,
             'meta' => $meta,
         ]));
+
+        if (($response['ok'] ?? false) !== true && !($response['error'] ?? '')) {
+            $response['error'] = 'gateway push client failed';
+        }
+
+        return $response;
     }
 
     public function kick(string $clientId): array
@@ -64,7 +70,7 @@ class GatewayService
         if ($this->rpc) {
             return $this->rpc;
         }
-        return $this->rpc = RPC::create($this->socketPath);
+        return $this->rpc = RPC::create(RuntimeConfig::goridgeRpcUri($this->socketPath));
     }
 
     private function toRpcObject(array $payload): object

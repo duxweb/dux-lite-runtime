@@ -45,7 +45,9 @@ class Control
         if (!$callback) {
             $event = new WsEvent('runtime.ws.auth', $params);
             App::event()->dispatch($event, 'runtime.ws.auth');
-            return $event->response();
+            $response = $event->response();
+            $response['meta'] = $this->normalizeMeta($response['meta'] ?? []);
+            return $response;
         }
 
         [$class, $method] = str_contains($callback, ':') ? explode(':', $callback, 2) : [$callback, '__invoke'];
@@ -66,7 +68,7 @@ class Control
             'client_type' => $auth['client_type'] ?? '',
             'allow_subscribe' => is_array($auth['allow_subscribe'] ?? null) ? $auth['allow_subscribe'] : [],
             'allow_publish' => is_array($auth['allow_publish'] ?? null) ? $auth['allow_publish'] : [],
-            'meta' => is_array($auth['meta'] ?? null) ? $auth['meta'] : [],
+            'meta' => $this->normalizeMeta(is_array($auth['meta'] ?? null) ? $auth['meta'] : []),
         ];
     }
 
@@ -77,7 +79,7 @@ class Control
 
         return [
             'allow' => $event->allowed(),
-            'meta' => $event->response(),
+            'meta' => $this->normalizeMeta($event->response()),
         ];
     }
 
@@ -93,7 +95,7 @@ class Control
 
         return [
             'ok' => true,
-            'meta' => $event->response(),
+            'meta' => $this->normalizeMeta($event->response()),
         ];
     }
 
@@ -104,8 +106,21 @@ class Control
 
         return [
             'ok' => $event->allowed(),
-            'meta' => $event->response(),
+            'meta' => $this->normalizeMeta($event->response()),
         ];
+    }
+
+    private function normalizeMeta(mixed $meta): mixed
+    {
+        if (!is_array($meta)) {
+            return $meta ?? new \stdClass();
+        }
+
+        if ($meta === []) {
+            return new \stdClass();
+        }
+
+        return $meta;
     }
 
     private function pullQueue(array $params): array

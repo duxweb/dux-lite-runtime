@@ -32,6 +32,7 @@ type Config struct {
 	SchedulerPollInterval time.Duration
 	RealtimeEnabled       bool
 	RealtimeListenAddr    string
+	WSMaxMessageSize      int64
 }
 
 func Load() (*Config, error) {
@@ -59,6 +60,7 @@ func Load() (*Config, error) {
 		SchedulerPollInterval: getenvDuration("DUX_RUNTIME_SCHEDULE_POLL_INTERVAL", time.Second),
 		RealtimeEnabled:       getenvBool("DUX_RUNTIME_REALTIME_ENABLED", true),
 		RealtimeListenAddr:    getenv("DUX_RUNTIME_REALTIME_ADDR", ":9504"),
+		WSMaxMessageSize:      getenvInt64("DUX_RUNTIME_WS_MAX_MESSAGE_SIZE", 32*1024*1024),
 	}
 
 	if cfg.Workers <= 0 {
@@ -84,6 +86,9 @@ func Load() (*Config, error) {
 	}
 	if cfg.SchedulerPollInterval <= 0 {
 		cfg.SchedulerPollInterval = time.Second
+	}
+	if cfg.WSMaxMessageSize <= 0 {
+		cfg.WSMaxMessageSize = 32 * 1024 * 1024
 	}
 
 	return cfg, nil
@@ -153,6 +158,18 @@ func getenvInt(key string, fallback int) int {
 		return fallback
 	}
 	number, err := strconv.Atoi(value)
+	if err != nil {
+		return fallback
+	}
+	return number
+}
+
+func getenvInt64(key string, fallback int64) int64 {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	number, err := strconv.ParseInt(value, 10, 64)
 	if err != nil {
 		return fallback
 	}

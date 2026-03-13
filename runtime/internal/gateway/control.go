@@ -1,6 +1,9 @@
 package gateway
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"log"
+)
 
 type Control struct {
 	service *Service
@@ -30,6 +33,7 @@ type KickRequest struct {
 
 type ControlResponse struct {
 	OK    bool             `json:"ok"`
+	Error string           `json:"error,omitempty"`
 	Items []map[string]any `json:"items,omitempty"`
 }
 
@@ -54,17 +58,27 @@ func (c *Control) Publish(request PublishRequest, reply *ControlResponse) error 
 func (c *Control) PushClient(request PushClientRequest, reply *ControlResponse) error {
 	payload := decodeRawMap(request.Payload)
 	meta := decodeRawMap(request.Meta)
-	reply.OK = c.service.pushClient(request.ClientID, map[string]any{
+	err := c.service.pushClient(request.ClientID, map[string]any{
 		"type":      "event",
 		"payload":   payload,
 		"meta":      meta,
 		"timestamp": nowUnix(),
-	}) == nil
+	})
+	reply.OK = err == nil
+	if err != nil {
+		reply.Error = err.Error()
+		log.Printf("gateway: push client failed client=%s error=%v", request.ClientID, err)
+	}
 	return nil
 }
 
 func (c *Control) Kick(request KickRequest, reply *ControlResponse) error {
-	reply.OK = c.service.kick(request.ClientID) == nil
+	err := c.service.kick(request.ClientID)
+	reply.OK = err == nil
+	if err != nil {
+		reply.Error = err.Error()
+		log.Printf("gateway: kick client failed client=%s error=%v", request.ClientID, err)
+	}
 	return nil
 }
 
