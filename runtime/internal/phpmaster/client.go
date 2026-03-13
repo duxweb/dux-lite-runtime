@@ -259,18 +259,36 @@ func (b *SocketBackend) PullQueue(ctx context.Context, queue string, limit int) 
 }
 
 func (b *SocketBackend) AckQueue(ctx context.Context, jobID string, result map[string]any) error {
-	return b.call(ctx, "Queue.Ack", map[string]any{
+	var response struct {
+		OK bool `json:"ok"`
+	}
+	if err := b.call(ctx, "Queue.Ack", map[string]any{
 		"job_id": jobID,
 		"result": result,
-	}, nil)
+	}, &response); err != nil {
+		return err
+	}
+	if !response.OK {
+		return fmt.Errorf("queue ack rejected for job %s", jobID)
+	}
+	return nil
 }
 
 func (b *SocketBackend) FailQueue(ctx context.Context, jobID string, message string, retryable bool) error {
-	return b.call(ctx, "Queue.Fail", map[string]any{
+	var response struct {
+		OK bool `json:"ok"`
+	}
+	if err := b.call(ctx, "Queue.Fail", map[string]any{
 		"job_id":    jobID,
 		"error":     message,
 		"retryable": retryable,
-	}, nil)
+	}, &response); err != nil {
+		return err
+	}
+	if !response.OK {
+		return fmt.Errorf("queue fail rejected for job %s", jobID)
+	}
+	return nil
 }
 
 func (b *SocketBackend) PullSchedule(ctx context.Context, now time.Time, limit int) ([]task.Envelope, error) {

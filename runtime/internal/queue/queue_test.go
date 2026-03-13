@@ -74,6 +74,26 @@ func (successExecutor) Execute(context.Context, task.Envelope) (task.Result, err
 	return task.Result{OK: true, Result: map[string]any{}}, nil
 }
 
+type countingBlockingExecutor struct {
+	mu    sync.Mutex
+	count int
+	done  chan struct{}
+}
+
+func (e *countingBlockingExecutor) Execute(context.Context, task.Envelope) (task.Result, error) {
+	e.mu.Lock()
+	e.count++
+	e.mu.Unlock()
+	<-e.done
+	return task.Result{OK: true, Result: map[string]any{}}, nil
+}
+
+func (e *countingBlockingExecutor) Calls() int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.count
+}
+
 func TestTickUsesWorkerConcurrencyFromPHPConfig(t *testing.T) {
 	backend := &fakeBackend{
 		queueConfig: []phpmaster.QueueWorkerConfig{
@@ -112,7 +132,41 @@ func TestTickUsesWorkerConcurrencyFromPHPConfig(t *testing.T) {
 	service.wg.Wait()
 }
 
+func TestTickSkipsDuplicateInflightJobs(t *testing.T) {
+	backend := &fakeBackend{
+		queueConfig: []phpmaster.QueueWorkerConfig{
+			{Name: "alpha", Num: 3},
+		},
+		pullResponse: map[string][]task.Envelope{
+			"alpha": {
+				{ID: "job-1", Type: task.KindQueue, Name: "Demo", Queue: "alpha"},
+				{ID: "job-1", Type: task.KindQueue, Name: "Demo", Queue: "alpha"},
+				{ID: "job-1", Type: task.KindQueue, Name: "Demo", Queue: "alpha"},
+			},
+		},
+	}
+	executor := &countingBlockingExecutor{done: make(chan struct{})}
+	service := New(&config.Config{
+		QueuePullLimit:     8,
+		QueueConfigRefresh: time.Minute,
+		QueueNames:         []string{"default"},
+	}, phpmaster.NewClientWithBackend("", backend), executor, nil)
+
+	if err := service.tick(context.Background()); err != nil {
+		t.Fatalf("tick returned error: %v", err)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	if calls := executor.Calls(); calls != 1 {
+		t.Fatalf("expected duplicate inflight job to execute once, got %d", calls)
+	}
+
+	close(executor.done)
+	service.wg.Wait()
+}
+
 func TestRefreshWorkersFallsBackToConfiguredQueueNames(t *testing.T) {
+
 	backend := &fakeBackend{
 		queueCfgErr: phpmaster.ErrUnavailable,
 	}

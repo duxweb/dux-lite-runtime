@@ -22,6 +22,7 @@ type Service struct {
 	wg          sync.WaitGroup
 	mu          sync.Mutex
 	workers     map[string]*workerState
+	inflight    map[string]struct{}
 	lastRefresh time.Time
 }
 
@@ -36,11 +37,12 @@ type workerState struct {
 
 func New(cfg *config.Config, master *phpmaster.Client, pool Executor, state *status.State) *Service {
 	return &Service{
-		config:  cfg,
-		master:  master,
-		pool:    pool,
-		state:   state,
-		workers: map[string]*workerState{},
+		config:   cfg,
+		master:   master,
+		pool:     pool,
+		state:    state,
+		workers:  map[string]*workerState{},
+		inflight: map[string]struct{}{},
 	}
 }
 
@@ -87,11 +89,17 @@ func (s *Service) tick(ctx context.Context) error {
 			s.state.IncQueuePulled(len(jobs))
 		}
 		for _, job := range jobs {
+			if !s.reserveJob(job.ID) {
+				log.Printf("queue: duplicate inflight job skipped id=%s queue=%s", job.ID, worker.config.Name)
+				continue
+			}
+
 			s.markActive(worker.config.Name, 1)
 			s.wg.Add(1)
 			go func(queueName string, job task.Envelope) {
 				defer s.wg.Done()
 				defer s.markActive(queueName, -1)
+				defer s.releaseJob(job.ID)
 				s.handleJob(ctx, job)
 			}(worker.config.Name, job)
 		}
@@ -229,7 +237,33 @@ func (s *Service) markActive(name string, delta int) {
 	}
 }
 
+func (s *Service) reserveJob(id string) bool {
+	if id == "" {
+		return true
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.inflight[id]; ok {
+		return false
+	}
+	s.inflight[id] = struct{}{}
+	return true
+}
+
+func (s *Service) releaseJob(id string) {
+	if id == "" {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.inflight, id)
+}
+
 func min(a int, b int) int {
+
 	if a < b {
 		return a
 	}
